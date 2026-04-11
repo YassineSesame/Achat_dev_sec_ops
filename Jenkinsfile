@@ -12,6 +12,8 @@ pipeline {
     environment {
         APP_NAME    = 'achat'
         JAR_VERSION = '1.0'
+        JAVA_HOME   = '/usr/lib/jvm/java-21-openjdk-amd64'
+        PATH        = "/usr/lib/jvm/java-21-openjdk-amd64/bin:${env.PATH}"
     }
 
     // ── Pipeline options ────────────────────────────────────────
