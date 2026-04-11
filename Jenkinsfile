@@ -5,9 +5,9 @@ pipeline {
     // Make sure "Maven-3" matches the name you set in:
     // Jenkins → Manage Jenkins → Global Tool Configuration → Maven
     tools {
-        maven 'Maven-3'
-    }
-
+    maven 'Maven-3'
+    jdk 'JDK-21'
+}
     // ── Environment variables ───────────────────────────────────
     environment {
         APP_NAME    = 'achat'
