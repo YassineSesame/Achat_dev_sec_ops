@@ -104,3 +104,4 @@ Git Push
 | 5 | Prometheus + Grafana monitoring |
 | 6 | DevSecOps hardening (OWASP, Trivy, secrets) |
 | 7 | Final demo & presentation |
+ 
