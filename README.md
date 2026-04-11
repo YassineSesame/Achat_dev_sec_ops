@@ -105,3 +105,4 @@ Git Push
 | 6 | DevSecOps hardening (OWASP, Trivy, secrets) |
 | 7 | Final demo & presentation |
  
+ 
