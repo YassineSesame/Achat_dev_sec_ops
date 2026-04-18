@@ -5,24 +5,24 @@ pipeline {
     // Make sure "Maven-3" matches the name you set in:
     // Jenkins → Manage Jenkins → Global Tool Configuration → Maven
     tools {
-    maven 'Maven-3'
-    jdk 'JDK-21'
-}
+        maven 'Maven-3'
+        jdk 'JDK-21'
+    }
+
     // ── Environment variables ───────────────────────────────────
     environment {
         APP_NAME    = 'achat'
         JAR_VERSION = '1.0'
         JAVA_HOME   = '/usr/lib/jvm/java-21-openjdk-amd64'
         PATH        = "/usr/lib/jvm/java-21-openjdk-amd64/bin:${env.PATH}"
+        SONAR_URL   = 'http://host.docker.internal:9000'
+        NEXUS_URL   = 'http://host.docker.internal:8081'
     }
 
     // ── Pipeline options ────────────────────────────────────────
     options {
-        // Keep only the last 5 builds to save disk space
         buildDiscarder(logRotator(numToKeepStr: '5'))
-        // Fail the build if it runs longer than 15 minutes
-        timeout(time: 15, unit: 'MINUTES')
-        // Add timestamps to console output
+        timeout(time: 20, unit: 'MINUTES')
         timestamps()
     }
 
@@ -34,8 +34,6 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo '========== Checking out source code =========='
-                // Jenkins automatically checks out the repo linked
-                // to this pipeline. This step makes it explicit.
                 checkout scm
                 echo "Branch: ${env.GIT_BRANCH}"
                 echo "Commit: ${env.GIT_COMMIT}"
@@ -48,13 +46,11 @@ pipeline {
         stage('Build') {
             steps {
                 echo '========== Building with Maven =========='
-                // -DskipTests here so tests run in their own stage
                 sh 'mvn clean package -DskipTests'
                 echo "JAR produced: target/${APP_NAME}-${JAR_VERSION}.jar"
             }
             post {
                 success {
-                    // Archive the JAR as a Jenkins build artifact
                     archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
                     echo 'Build artifact archived.'
                 }
@@ -70,12 +66,10 @@ pipeline {
         stage('Test') {
             steps {
                 echo '========== Running JUnit tests =========='
-                // Run only the test phase (reuse classes from Build)
                 sh 'mvn test'
             }
             post {
                 always {
-                    // Publish JUnit results regardless of pass/fail
                     junit testResults: 'target/surefire-reports/*.xml',
                           allowEmptyResults: true
                     echo 'JUnit results published.'
@@ -89,6 +83,59 @@ pipeline {
             }
         }
 
+        // ══════════════════════════════════════════════════════
+        // STAGE 4 — SonarQube Analysis
+        // ══════════════════════════════════════════════════════
+        // Requires in Jenkins:
+        //   - SonarQube Scanner plugin installed
+        //   - "SonarQube" server configured under Manage Jenkins → System
+        //   - Token credential linked to that server
+        stage('Sonar Analysis') {
+            steps {
+                echo '========== Running SonarQube Analysis =========='
+                withSonarQubeEnv('SonarQube') {
+                    sh '''
+                        mvn sonar:sonar \
+                          -Dsonar.projectKey=achat \
+                          -Dsonar.projectName=achat \
+                          -Dsonar.host.url=${SONAR_URL}
+                    '''
+                }
+            }
+            post {
+                success {
+                    echo "SonarQube report available at: ${SONAR_URL}/dashboard?id=achat"
+                }
+                failure {
+                    echo 'Sonar analysis FAILED.'
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════════════════
+        // STAGE 5 — Publish to Nexus
+        // ══════════════════════════════════════════════════════
+        // Requires:
+        //   - Nexus running on localhost:8081
+        //   - maven-releases / maven-snapshots repositories created
+        //   - ~/.m2/settings.xml on the Jenkins agent with
+        //     server credentials for ids: nexus-releases / nexus-snapshots
+        stage('Publish to Nexus') {
+            steps {
+                echo '========== Publishing JAR to Nexus =========='
+                sh 'mvn deploy -DskipTests'
+            }
+            post {
+                success {
+                    echo "Artifact ${APP_NAME}-${JAR_VERSION}.jar published to Nexus."
+                    echo "Browse it at: ${NEXUS_URL}/#browse/browse:maven-releases"
+                }
+                failure {
+                    echo 'Deploy to Nexus FAILED. Check ~/.m2/settings.xml credentials.'
+                }
+            }
+        }
+
     }
 
     // ── Global post actions ─────────────────────────────────────
@@ -97,7 +144,7 @@ pipeline {
             echo """
             ╔══════════════════════════════════════╗
             ║   Pipeline PASSED ✔                  ║
-            ║   App   : ${APP_NAME}                ║
+            ║   App   : ${APP_NAME} v${JAR_VERSION} ║
             ║   Branch: ${env.GIT_BRANCH}          ║
             ╚══════════════════════════════════════╝
             """
@@ -112,7 +159,6 @@ pipeline {
             """
         }
         always {
-            // Clean workspace after each build to save disk
             cleanWs()
         }
     }
