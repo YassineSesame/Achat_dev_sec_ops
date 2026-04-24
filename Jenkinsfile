@@ -11,12 +11,13 @@ pipeline {
 
     // ── Environment variables ───────────────────────────────────
     environment {
-        APP_NAME    = 'achat'
-        JAR_VERSION = '1.0'
-        JAVA_HOME   = '/usr/lib/jvm/java-21-openjdk-amd64'
-        PATH        = "/usr/lib/jvm/java-21-openjdk-amd64/bin:${env.PATH}"
-        SONAR_URL   = 'http://host.docker.internal:9000'
-        NEXUS_URL   = 'http://host.docker.internal:8081'
+        APP_NAME      = 'achat'
+        JAR_VERSION   = '1.0'
+        JAVA_HOME     = '/usr/lib/jvm/java-21-openjdk-amd64'
+        PATH          = "/usr/lib/jvm/java-21-openjdk-amd64/bin:${env.PATH}"
+        SONAR_URL     = 'http://host.docker.internal:9000'
+        NEXUS_URL     = 'http://host.docker.internal:8081'
+        DOCKER_IMAGE  = 'yassinesesame/achat'
     }
 
     // ── Pipeline options ────────────────────────────────────────
@@ -132,6 +133,60 @@ pipeline {
                 }
                 failure {
                     echo 'Deploy to Nexus FAILED. Check ~/.m2/settings.xml credentials.'
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════════════════
+        // STAGE 6 — Docker Build
+        // ══════════════════════════════════════════════════════
+        // Requires: Docker CLI installed on Jenkins agent and
+        // Docker socket mounted (-v /var/run/docker.sock:/var/run/docker.sock)
+        stage('Docker Build') {
+            steps {
+                echo '========== Building Docker image =========='
+                sh "docker build -t ${DOCKER_IMAGE}:${JAR_VERSION} ."
+                sh "docker tag ${DOCKER_IMAGE}:${JAR_VERSION} ${DOCKER_IMAGE}:latest"
+                echo "Image built: ${DOCKER_IMAGE}:${JAR_VERSION}"
+            }
+            post {
+                success {
+                    echo "Docker image ${DOCKER_IMAGE}:${JAR_VERSION} created successfully."
+                }
+                failure {
+                    echo 'Docker Build FAILED. Is the Docker socket mounted in Jenkins?'
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════════════════
+        // STAGE 7 — Docker Push
+        // ══════════════════════════════════════════════════════
+        // Requires: Jenkins credential with id 'dockerhub-credentials'
+        // (kind: Username with password → Docker Hub login)
+        stage('Docker Push') {
+            steps {
+                echo '========== Pushing image to Docker Hub =========='
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-credentials',
+                    usernameVariable: 'DH_USER',
+                    passwordVariable: 'DH_PASS'
+                )]) {
+                    sh '''
+                        echo $DH_PASS | docker login -u $DH_USER --password-stdin
+                        docker push ${DOCKER_IMAGE}:${JAR_VERSION}
+                        docker push ${DOCKER_IMAGE}:latest
+                        docker logout
+                    '''
+                }
+            }
+            post {
+                success {
+                    echo "Image pushed: ${DOCKER_IMAGE}:${JAR_VERSION}"
+                    echo "Docker Hub: https://hub.docker.com/r/${DOCKER_IMAGE}"
+                }
+                failure {
+                    echo 'Docker Push FAILED. Check dockerhub-credentials in Jenkins.'
                 }
             }
         }
