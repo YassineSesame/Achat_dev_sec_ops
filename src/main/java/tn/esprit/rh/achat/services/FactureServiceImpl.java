@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import tn.esprit.rh.achat.entities.*;
 import tn.esprit.rh.achat.repositories.*;
 
+import javax.persistence.EntityNotFoundException;
 import javax.transaction.Transactional;
 import java.util.Date;
 import java.util.List;
@@ -92,14 +93,17 @@ public class FactureServiceImpl implements IFactureService {
 
 	@Override
 	public List<Facture> getFacturesByFournisseur(Long idFournisseur) {
-		Fournisseur fournisseur = fournisseurRepository.findById(idFournisseur).orElse(null);
+		Fournisseur fournisseur = fournisseurRepository.findById(idFournisseur)
+				.orElseThrow(() -> new EntityNotFoundException("Fournisseur not found with id " + idFournisseur));
 		return (List<Facture>) fournisseur.getFactures();
 	}
 
 	@Override
 	public void assignOperateurToFacture(Long idOperateur, Long idFacture) {
-		Facture facture = factureRepository.findById(idFacture).orElse(null);
-		Operateur operateur = operateurRepository.findById(idOperateur).orElse(null);
+		Facture facture = factureRepository.findById(idFacture)
+				.orElseThrow(() -> new EntityNotFoundException("Facture not found with id " + idFacture));
+		Operateur operateur = operateurRepository.findById(idOperateur)
+				.orElseThrow(() -> new EntityNotFoundException("Operateur not found with id " + idOperateur));
 		operateur.getFactures().add(facture);
 		operateurRepository.save(operateur);
 	}
