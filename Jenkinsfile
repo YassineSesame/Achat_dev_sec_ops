@@ -17,7 +17,7 @@ pipeline {
         PATH          = "/usr/lib/jvm/java-21-openjdk-amd64/bin:${env.PATH}"
         SONAR_URL     = 'http://host.docker.internal:9000'
         NEXUS_URL     = 'http://host.docker.internal:8081'
-        DOCKER_IMAGE  = 'yassinesesame/achat'
+        DOCKER_IMAGE  = 'achat'
     }
 
     // ── Pipeline options ────────────────────────────────────────
@@ -160,33 +160,24 @@ pipeline {
         }
 
         // ══════════════════════════════════════════════════════
-        // STAGE 7 — Docker Push
+        // STAGE 7 — Docker Run
         // ══════════════════════════════════════════════════════
-        // Requires: Jenkins credential with id 'dockerhub-credentials'
-        // (kind: Username with password → Docker Hub login)
-        stage('Docker Push') {
+        // Stops any existing container with the same name, then
+        // starts a fresh one from the newly built image.
+        stage('Docker Run') {
             steps {
-                echo '========== Pushing image to Docker Hub =========='
-                withCredentials([usernamePassword(
-                    credentialsId: 'dockerhub-credentials',
-                    usernameVariable: 'DH_USER',
-                    passwordVariable: 'DH_PASS'
-                )]) {
-                    sh '''
-                        echo $DH_PASS | docker login -u $DH_USER --password-stdin
-                        docker push ${DOCKER_IMAGE}:${JAR_VERSION}
-                        docker push ${DOCKER_IMAGE}:latest
-                        docker logout
-                    '''
-                }
+                echo '========== Running Docker container locally =========='
+                sh 'docker stop achat-app || true'
+                sh 'docker rm   achat-app || true'
+                sh "docker run -d --name achat-app -p 8089:8089 ${DOCKER_IMAGE}:${JAR_VERSION}"
+                echo 'Container started — app available at http://localhost:8089/SpringMVC'
             }
             post {
                 success {
-                    echo "Image pushed: ${DOCKER_IMAGE}:${JAR_VERSION}"
-                    echo "Docker Hub: https://hub.docker.com/r/${DOCKER_IMAGE}"
+                    echo "Container achat-app is running (${DOCKER_IMAGE}:${JAR_VERSION})."
                 }
                 failure {
-                    echo 'Docker Push FAILED. Check dockerhub-credentials in Jenkins.'
+                    echo 'Docker Run FAILED. Is Docker socket mounted in Jenkins?'
                 }
             }
         }
