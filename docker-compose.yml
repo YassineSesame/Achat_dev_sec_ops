@@ -34,6 +34,7 @@ services:
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_MVC_PATHMATCH_MATCHING_STRATEGY: ant_path_matcher
     ports:
       - "8089:8089"
     networks:
