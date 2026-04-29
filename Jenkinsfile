@@ -160,24 +160,23 @@ pipeline {
         }
 
         // ══════════════════════════════════════════════════════
-        // STAGE 7 — Docker Run
+        // STAGE 7 — Docker Run (via docker-compose)
         // ══════════════════════════════════════════════════════
-        // Stops any existing container with the same name, then
-        // starts a fresh one from the newly built image.
+        // Brings up MySQL + the app together using docker-compose.
+        // MySQL starts first (healthcheck), then the app connects.
         stage('Docker Run') {
             steps {
-                echo '========== Running Docker container locally =========='
-                sh 'docker stop achat-app || true'
-                sh 'docker rm   achat-app || true'
-                sh "docker run -d --name achat-app -p 8089:8089 ${DOCKER_IMAGE}:${JAR_VERSION}"
-                echo 'Container started — app available at http://localhost:8089/SpringMVC'
+                echo '========== Starting stack with docker-compose =========='
+                sh 'docker-compose down --remove-orphans || true'
+                sh 'docker-compose up -d'
+                echo 'Stack started — app available at http://localhost:8089'
             }
             post {
                 success {
-                    echo "Container achat-app is running (${DOCKER_IMAGE}:${JAR_VERSION})."
+                    echo "Stack is up: achat-mysql + achat-app running via docker-compose."
                 }
                 failure {
-                    echo 'Docker Run FAILED. Is Docker socket mounted in Jenkins?'
+                    echo 'Docker Run FAILED. Check docker-compose logs for details.'
                 }
             }
         }
