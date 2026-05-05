@@ -17,6 +17,7 @@
    	 	<java.version>17</java.version>
    	 	<maven.compiler.source>17</maven.compiler.source>
     	<maven.compiler.target>17</maven.compiler.target>
+		<sonar.coverage.exclusions>src/main/java/tn/esprit/rh/achat/util/SpringFoxSwaggerConfig.java</sonar.coverage.exclusions>
 	</properties>
 	<dependencies>
 		<dependency>
