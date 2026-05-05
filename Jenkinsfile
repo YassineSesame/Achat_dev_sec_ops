@@ -168,7 +168,7 @@ pipeline {
             steps {
                 echo '========== Starting stack with docker-compose =========='
                 sh 'docker-compose down --remove-orphans || true'
-                sh 'docker-compose up -d mysql app'
+                sh 'docker-compose up -d'
                 echo 'Stack started — app available at http://localhost:8089'
             }
             post {
