@@ -65,6 +65,21 @@ services:
     networks:
       - achat-net
 
+  # ── cAdvisor ────────────────────────────────────────────
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0 # Using a specific stable version
+    container_name: cadvisor
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - achat-net
+
 networks:
   achat-net:
     driver: bridge
