@@ -86,3 +86,8 @@ networks:
 
 volumes:
   mysql-data:
+  grafana-data:
+er: bridge
+
+volumes:
+  mysql-data:
