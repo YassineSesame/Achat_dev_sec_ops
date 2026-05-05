@@ -60,6 +60,8 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
     ports:
       - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
     depends_on:
       - prometheus
     networks:
@@ -87,7 +89,3 @@ networks:
 volumes:
   mysql-data:
   grafana-data:
-er: bridge
-
-volumes:
-  mysql-data:
