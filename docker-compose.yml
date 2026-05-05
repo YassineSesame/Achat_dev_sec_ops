@@ -5,7 +5,7 @@ services:
   # ── MySQL Database ──────────────────────────────────────
   mysql:
     image: mysql:8.0
-    container_name: achat-mysql
+    container_name: achat.2-mysql
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: achatdb
@@ -25,7 +25,7 @@ services:
   app:
     build: .
     image: achat:latest
-    container_name: achat-app
+    container_name: achat-app2
     depends_on:
       mysql:
         condition: service_healthy
@@ -70,7 +70,7 @@ services:
     image: gcr.io/cadvisor/cadvisor:v0.47.0 # Using a specific stable version
     container_name: cadvisor
     ports:
-      - "8080:8080"
+      - "8085:8080"
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:rw
