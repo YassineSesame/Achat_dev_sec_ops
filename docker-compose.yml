@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
 
   # ── MySQL Database ──────────────────────────────────────
@@ -69,8 +67,11 @@ services:
 
   # ── cAdvisor ────────────────────────────────────────────
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.47.0 # Using a specific stable version
+    image: gcr.io/cadvisor/cadvisor:latest
     container_name: cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg
     ports:
       - "8085:8080"
     volumes:
@@ -80,6 +81,9 @@ services:
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+      - '-docker_only'
+      - '-housekeeping_interval=10s'
     networks:
       - achat-net
 
