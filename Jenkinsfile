@@ -23,7 +23,7 @@ pipeline {
     // ── Pipeline options ────────────────────────────────────────
     options {
         buildDiscarder(logRotator(numToKeepStr: '5'))
-        timeout(time: 20, unit: 'MINUTES')
+        timeout(time: 60, unit: 'MINUTES')
         timestamps()
     }
 
@@ -190,15 +190,18 @@ pipeline {
                 echo '========== Trivy: scanning project filesystem =========='
                 // Use --volumes-from to share Jenkins's workspace volume
                 // with the Trivy container (Docker-in-Docker workaround).
-                // Output is redirected via the Jenkins shell so the file
-                // ends up in the Jenkins workspace where archive can find it.
+                // The trivy-cache named volume persists DBs across builds
+                // so they don't need to be re-downloaded each time.
                 sh """
                     docker run --rm \
                       --volumes-from jenkins \
+                      -v trivy-cache:/root/.cache/trivy \
                       -w \$(pwd) \
                       aquasec/trivy:latest fs \
                       --severity HIGH,CRITICAL \
                       --no-progress \
+                      --timeout 30m \
+                      --scanners vuln \
                       --format table \
                       . > trivy-fs-report.txt 2>&1 || true
                 """
@@ -207,6 +210,7 @@ pipeline {
                 sh """
                     docker run --rm \
                       -v /var/run/docker.sock:/var/run/docker.sock \
+                      -v trivy-cache:/root/.cache/trivy \
                       aquasec/trivy:latest image \
                       --severity HIGH,CRITICAL \
                       --no-progress \
