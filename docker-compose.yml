@@ -68,7 +68,7 @@ services:
   # ── cAdvisor ────────────────────────────────────────────
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
-    container_name: cadvisor
+    container_name: cadvisor1
     privileged: true
     devices:
       - /dev/kmsg
