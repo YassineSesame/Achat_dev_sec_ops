@@ -188,29 +188,33 @@ pipeline {
         stage('Trivy Security Scan') {
             steps {
                 echo '========== Trivy: scanning project filesystem =========='
+                // Use --volumes-from to share Jenkins's workspace volume
+                // with the Trivy container (Docker-in-Docker workaround).
+                // Output is redirected via the Jenkins shell so the file
+                // ends up in the Jenkins workspace where archive can find it.
                 sh """
                     docker run --rm \
-                      -v \$(pwd):/project \
+                      --volumes-from jenkins \
+                      -w \$(pwd) \
                       aquasec/trivy:latest fs \
                       --severity HIGH,CRITICAL \
                       --no-progress \
                       --format table \
-                      --output /project/trivy-fs-report.txt \
-                      /project || true
+                      . > trivy-fs-report.txt 2>&1 || true
                 """
 
                 echo '========== Trivy: scanning Docker image =========='
                 sh """
                     docker run --rm \
                       -v /var/run/docker.sock:/var/run/docker.sock \
-                      -v \$(pwd):/report \
                       aquasec/trivy:latest image \
                       --severity HIGH,CRITICAL \
                       --no-progress \
                       --format table \
-                      --output /report/trivy-image-report.txt \
-                      ${DOCKER_IMAGE}:${JAR_VERSION} || true
+                      ${DOCKER_IMAGE}:${JAR_VERSION} > trivy-image-report.txt 2>&1 || true
                 """
+
+                sh 'ls -la trivy-*.txt || true'
             }
             post {
                 always {
