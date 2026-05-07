@@ -145,7 +145,17 @@ pipeline {
         stage('OWASP Dependency-Check') {
             steps {
                 echo '========== Running OWASP Dependency-Check =========='
-                sh 'mvn org.owasp:dependency-check-maven:check -DskipTests || true'
+                // Use Jenkins-stored NVD API key (credentialsId: nvd-api-key).
+                // If the credential is missing, the scan still runs but may
+                // hit NVD rate limits (warnings only — pipeline keeps going).
+                withCredentials([string(credentialsId: 'nvd-api-key',
+                                         variable: 'NVD_API_KEY')]) {
+                    sh '''
+                        mvn org.owasp:dependency-check-maven:check \
+                          -DskipTests \
+                          -DnvdApiKey=$NVD_API_KEY || true
+                    '''
+                }
             }
             post {
                 always {

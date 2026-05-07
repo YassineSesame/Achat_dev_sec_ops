@@ -118,13 +118,6 @@
 					<suppressionFile>owasp-suppressions.xml</suppressionFile>
 					<nvdValidForHours>24</nvdValidForHours>
 				</configuration>
-				<executions>
-					<execution>
-						<goals>
-							<goal>check</goal>
-						</goals>
-					</execution>
-				</executions>
 			</plugin>
 		</plugins>
 	</build>
