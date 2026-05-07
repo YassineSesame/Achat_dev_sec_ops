@@ -210,6 +210,8 @@ pipeline {
                       aquasec/trivy:latest image \
                       --severity HIGH,CRITICAL \
                       --no-progress \
+                      --timeout 30m \
+                      --scanners vuln \
                       --format table \
                       ${DOCKER_IMAGE}:${JAR_VERSION} > trivy-image-report.txt 2>&1 || true
                 """
