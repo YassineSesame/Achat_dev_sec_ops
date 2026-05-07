@@ -138,32 +138,20 @@ pipeline {
         }
 
         // ══════════════════════════════════════════════════════
-        // STAGE 6 — OWASP Dependency-Check
+        // STAGE 6 — OWASP Dependency-Check (DISABLED in CI)
         // ══════════════════════════════════════════════════════
-        // Scans Maven dependencies for known CVEs (Week 6 — Security).
-        // Generates an HTML report archived as a Jenkins artifact.
+        // The OWASP plugin is integrated in pom.xml and can be run
+        // locally with:
+        //   mvn org.owasp:dependency-check-maven:check -DnvdApiKey=...
+        // It is intentionally NOT executed in CI to avoid blocking the
+        // pipeline on NVD rate limits. Trivy (next stage) covers both
+        // OS-level and Java dependency vulnerabilities.
+        //
+        // To re-enable, change the `when` clause below to `expression { true }`.
         stage('OWASP Dependency-Check') {
+            when { expression { false } }
             steps {
-                echo '========== Running OWASP Dependency-Check =========='
-                // Use Jenkins-stored NVD API key (credentialsId: nvd-api-key).
-                // If the credential is missing, the scan still runs but may
-                // hit NVD rate limits (warnings only — pipeline keeps going).
-                withCredentials([string(credentialsId: 'nvd-api-key',
-                                         variable: 'NVD_API_KEY')]) {
-                    sh '''
-                        mvn org.owasp:dependency-check-maven:check \
-                          -DskipTests \
-                          -DnvdApiKey=$NVD_API_KEY || true
-                    '''
-                }
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'target/dependency-check-report.html',
-                                     allowEmptyArchive: true,
-                                     fingerprint: true
-                    echo 'OWASP Dependency-Check report archived.'
-                }
+                echo '========== OWASP scan skipped (run locally) =========='
             }
         }
 
@@ -190,14 +178,28 @@ pipeline {
         }
 
         // ══════════════════════════════════════════════════════
-        // STAGE 8 — Trivy Image Scan
+        // STAGE 8 — Trivy Security Scan (filesystem + image)
         // ══════════════════════════════════════════════════════
-        // Scans the freshly built Docker image for OS-level CVEs
-        // (Week 6 — Security). Uses the official aquasec/trivy image
-        // so nothing extra needs to be installed on the agent.
-        stage('Trivy Image Scan') {
+        // Trivy detects vulnerabilities in:
+        //   - Java dependencies (pom.xml + JARs)
+        //   - Docker image OS packages
+        //   - Misconfigurations and exposed secrets
+        // Replaces OWASP Dependency-Check (which is rate-limited by NVD).
+        stage('Trivy Security Scan') {
             steps {
-                echo '========== Scanning Docker image with Trivy =========='
+                echo '========== Trivy: scanning project filesystem =========='
+                sh """
+                    docker run --rm \
+                      -v \$(pwd):/project \
+                      aquasec/trivy:latest fs \
+                      --severity HIGH,CRITICAL \
+                      --no-progress \
+                      --format table \
+                      --output /project/trivy-fs-report.txt \
+                      /project || true
+                """
+
+                echo '========== Trivy: scanning Docker image =========='
                 sh """
                     docker run --rm \
                       -v /var/run/docker.sock:/var/run/docker.sock \
@@ -206,16 +208,16 @@ pipeline {
                       --severity HIGH,CRITICAL \
                       --no-progress \
                       --format table \
-                      --output /report/trivy-report.txt \
+                      --output /report/trivy-image-report.txt \
                       ${DOCKER_IMAGE}:${JAR_VERSION} || true
                 """
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'trivy-report.txt',
+                    archiveArtifacts artifacts: 'trivy-*-report.txt',
                                      allowEmptyArchive: true,
                                      fingerprint: true
-                    echo 'Trivy scan report archived.'
+                    echo 'Trivy reports archived (filesystem + image).'
                 }
             }
         }
