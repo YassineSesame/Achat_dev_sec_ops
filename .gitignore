@@ -38,6 +38,11 @@ application-secret.properties
 *.env
 .env
 .env.*
+!.env.example
 secrets/
 **/secret*
 **/credentials*
+
+### OWASP Dependency-Check reports ###
+dependency-check-report.*
+target/dependency-check-report.*

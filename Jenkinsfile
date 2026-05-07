@@ -138,7 +138,27 @@ pipeline {
         }
 
         // ══════════════════════════════════════════════════════
-        // STAGE 6 — Docker Build
+        // STAGE 6 — OWASP Dependency-Check
+        // ══════════════════════════════════════════════════════
+        // Scans Maven dependencies for known CVEs (Week 6 — Security).
+        // Generates an HTML report archived as a Jenkins artifact.
+        stage('OWASP Dependency-Check') {
+            steps {
+                echo '========== Running OWASP Dependency-Check =========='
+                sh 'mvn org.owasp:dependency-check-maven:check -DskipTests || true'
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'target/dependency-check-report.html',
+                                     allowEmptyArchive: true,
+                                     fingerprint: true
+                    echo 'OWASP Dependency-Check report archived.'
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════════════════
+        // STAGE 7 — Docker Build
         // ══════════════════════════════════════════════════════
         // Requires: Docker CLI installed on Jenkins agent and
         // Docker socket mounted (-v /var/run/docker.sock:/var/run/docker.sock)
@@ -160,7 +180,38 @@ pipeline {
         }
 
         // ══════════════════════════════════════════════════════
-        // STAGE 7 — Docker Run (via docker-compose)
+        // STAGE 8 — Trivy Image Scan
+        // ══════════════════════════════════════════════════════
+        // Scans the freshly built Docker image for OS-level CVEs
+        // (Week 6 — Security). Uses the official aquasec/trivy image
+        // so nothing extra needs to be installed on the agent.
+        stage('Trivy Image Scan') {
+            steps {
+                echo '========== Scanning Docker image with Trivy =========='
+                sh """
+                    docker run --rm \
+                      -v /var/run/docker.sock:/var/run/docker.sock \
+                      -v \$(pwd):/report \
+                      aquasec/trivy:latest image \
+                      --severity HIGH,CRITICAL \
+                      --no-progress \
+                      --format table \
+                      --output /report/trivy-report.txt \
+                      ${DOCKER_IMAGE}:${JAR_VERSION} || true
+                """
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy-report.txt',
+                                     allowEmptyArchive: true,
+                                     fingerprint: true
+                    echo 'Trivy scan report archived.'
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════════════════
+        // STAGE 9 — Docker Run (via docker-compose)
         // ══════════════════════════════════════════════════════
         // Brings up MySQL + the app together using docker-compose.
         // MySQL starts first (healthcheck), then the app connects.

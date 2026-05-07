@@ -107,6 +107,25 @@
 				<artifactId>maven-deploy-plugin</artifactId>
 				<version>3.1.1</version>
 			</plugin>
+
+			<plugin>
+				<groupId>org.owasp</groupId>
+				<artifactId>dependency-check-maven</artifactId>
+				<version>9.2.0</version>
+				<configuration>
+					<format>HTML</format>
+					<failBuildOnCVSS>11</failBuildOnCVSS>
+					<suppressionFile>owasp-suppressions.xml</suppressionFile>
+					<nvdValidForHours>24</nvdValidForHours>
+				</configuration>
+				<executions>
+					<execution>
+						<goals>
+							<goal>check</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
 		</plugins>
 	</build>
 
