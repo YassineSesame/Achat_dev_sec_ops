@@ -291,19 +291,19 @@ EOF
         stage('OWASP ZAP Baseline') {
             steps {
                 echo '========== OWASP ZAP baseline scan =========='
-                // Report must be written on a bind-mounted workspace path (not only stdout).
-                // ZAP runs as root here so the HTML is writable on the Jenkins workspace.
+                // owasp/zap2docker-stable was removed from Docker Hub — use official ZAP image (GHCR).
+                // Mount /zap/wrk per https://www.zaproxy.org/docs/docker/baseline-scan/
                 sh """
                     mkdir -p target
+                    docker pull ghcr.io/zaproxy/zaproxy:stable
                     docker run --rm \
-                      --user root \
                       --add-host=host.docker.internal:host-gateway \
-                      -v "\${WORKSPACE}:/zap/ws:rw" \
-                      -w /zap/ws \
-                      owasp/zap2docker-stable \
+                      -v "\${WORKSPACE}:/zap/wrk:rw" \
+                      -w /zap/wrk \
+                      ghcr.io/zaproxy/zaproxy:stable \
                       zap-baseline.py \
                       -t ${APP_BASE_URL}/categorieProduit/retrieve-all-categorieProduit \
-                      -r /zap/ws/zap-baseline-report.html \
+                      -r /zap/wrk/zap-baseline-report.html \
                       -I || true
                     cp -f zap-baseline-report.html target/zap-baseline-report.html 2>/dev/null || true
                     ls -la zap-baseline-report.html target/zap-baseline-report.html 2>/dev/null || true
