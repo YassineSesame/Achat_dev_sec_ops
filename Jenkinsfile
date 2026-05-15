@@ -291,25 +291,34 @@ EOF
         stage('OWASP ZAP Baseline') {
             steps {
                 echo '========== OWASP ZAP baseline scan =========='
+                // Report must be written on a bind-mounted workspace path (not only stdout).
+                // ZAP runs as root here so the HTML is writable on the Jenkins workspace.
                 sh """
+                    mkdir -p target
                     docker run --rm \
+                      --user root \
                       --add-host=host.docker.internal:host-gateway \
-                      --volumes-from jenkins \
-                      -w \$(pwd) \
+                      -v "\${WORKSPACE}:/zap/ws:rw" \
+                      -w /zap/ws \
                       owasp/zap2docker-stable \
                       zap-baseline.py \
                       -t ${APP_BASE_URL}/categorieProduit/retrieve-all-categorieProduit \
-                      -r zap-baseline-report.html \
+                      -r /zap/ws/zap-baseline-report.html \
                       -I || true
+                    cp -f zap-baseline-report.html target/zap-baseline-report.html 2>/dev/null || true
+                    ls -la zap-baseline-report.html target/zap-baseline-report.html 2>/dev/null || true
+                    test -s zap-baseline-report.html || test -s target/zap-baseline-report.html || {
+                      echo "ERROR: ZAP did not produce zap-baseline-report.html in workspace"
+                      exit 1
+                    }
                 """
-                sh 'ls -la zap-baseline-report.html || true'
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'zap-baseline-report.html',
+                    archiveArtifacts artifacts: 'zap-baseline-report.html, target/zap-baseline-report.html',
                                      allowEmptyArchive: true,
                                      fingerprint: true
-                    echo 'ZAP baseline report archived.'
+                    echo 'ZAP baseline report archived (workspace root and target/).'
                 }
             }
         }
