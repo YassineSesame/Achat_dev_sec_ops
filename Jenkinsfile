@@ -18,6 +18,7 @@ pipeline {
         SONAR_URL     = 'http://host.docker.internal:9000'
         NEXUS_URL     = 'http://host.docker.internal:8081'
         DOCKER_IMAGE  = 'achat'
+        APP_BASE_URL  = 'http://host.docker.internal:8089/SpringMVC'
     }
 
     // ── Pipeline options ────────────────────────────────────────
@@ -240,9 +241,37 @@ pipeline {
         stage('Docker Run') {
             steps {
                 echo '========== Starting stack with docker-compose =========='
-                sh 'docker-compose down --remove-orphans || true'
-                sh 'docker-compose up -d mysql app'
-                echo 'Stack started — app available at http://localhost:8089'
+                // .env is gitignored — create CI env file so compose can start MySQL + app
+                sh '''
+                    cat > .env << 'EOF'
+MYSQL_ROOT_PASSWORD=root
+MYSQL_DATABASE=achatdb
+SPRING_DATASOURCE_USERNAME=root
+SPRING_DATASOURCE_PASSWORD=root
+GF_SECURITY_ADMIN_USER=admin
+GF_SECURITY_ADMIN_PASSWORD=admin
+EOF
+                '''
+                sh 'docker rm -f achat-app2 achat.2-mysql 2>/dev/null || true'
+                // -v removes mysql-data so root password always matches .env (stale volume = Access denied / app crash)
+                sh 'docker-compose down -v --remove-orphans || true'
+                sh 'docker-compose up -d --no-build mysql app'
+                echo 'Waiting for MySQL + Spring Boot to be ready...'
+                sh """
+                    for i in \$(seq 1 60); do
+                      if docker run --rm --add-host=host.docker.internal:host-gateway curlimages/curl:8.5.0 -sf \\
+                        ${APP_BASE_URL}/categorieProduit/retrieve-all-categorieProduit >/dev/null 2>&1; then
+                        echo "App is up after attempt \${i}"
+                        exit 0
+                      fi
+                      echo "Waiting for app... (\${i}/60)"
+                      sleep 5
+                    done
+                    echo "App did not become ready — compose logs:"
+                    docker-compose logs --tail=80 app mysql || true
+                    exit 1
+                """
+                echo "Stack started — app available at ${APP_BASE_URL}"
             }
             post {
                 success {
@@ -261,32 +290,18 @@ pipeline {
         // Report archived as zap-baseline-report.html per build.
         stage('OWASP ZAP Baseline') {
             steps {
-                echo '========== Waiting for app to be ready =========='
-                sh '''
-                    for i in $(seq 1 36); do
-                      if docker run --rm curlimages/curl:8.5.0 -sf \
-                        http://host.docker.internal:8089/SpringMVC/actuator/health >/dev/null 2>&1; then
-                        echo "App is up after attempt ${i}"
-                        exit 0
-                      fi
-                      echo "Waiting for app... (${i}/36)"
-                      sleep 5
-                    done
-                    echo "App did not become ready in time"
-                    exit 1
-                '''
-
                 echo '========== OWASP ZAP baseline scan =========='
-                sh '''
+                sh """
                     docker run --rm \
+                      --add-host=host.docker.internal:host-gateway \
                       --volumes-from jenkins \
-                      -w $(pwd) \
+                      -w \$(pwd) \
                       owasp/zap2docker-stable \
                       zap-baseline.py \
-                      -t http://host.docker.internal:8089/SpringMVC/categorieProduit/retrieve-all-categorieProduit \
+                      -t ${APP_BASE_URL}/categorieProduit/retrieve-all-categorieProduit \
                       -r zap-baseline-report.html \
                       -I || true
-                '''
+                """
                 sh 'ls -la zap-baseline-report.html || true'
             }
             post {
