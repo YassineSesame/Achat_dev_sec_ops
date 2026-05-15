@@ -254,6 +254,51 @@ pipeline {
             }
         }
 
+        // ══════════════════════════════════════════════════════
+        // STAGE 10 — OWASP ZAP Baseline (DAST)
+        // ══════════════════════════════════════════════════════
+        // Dynamic scan against the running app (after Docker Run).
+        // Report archived as zap-baseline-report.html per build.
+        stage('OWASP ZAP Baseline') {
+            steps {
+                echo '========== Waiting for app to be ready =========='
+                sh '''
+                    for i in $(seq 1 36); do
+                      if docker run --rm curlimages/curl:8.5.0 -sf \
+                        http://host.docker.internal:8089/SpringMVC/actuator/health >/dev/null 2>&1; then
+                        echo "App is up after attempt ${i}"
+                        exit 0
+                      fi
+                      echo "Waiting for app... (${i}/36)"
+                      sleep 5
+                    done
+                    echo "App did not become ready in time"
+                    exit 1
+                '''
+
+                echo '========== OWASP ZAP baseline scan =========='
+                sh '''
+                    docker run --rm \
+                      --volumes-from jenkins \
+                      -w $(pwd) \
+                      owasp/zap2docker-stable \
+                      zap-baseline.py \
+                      -t http://host.docker.internal:8089/SpringMVC/categorieProduit/retrieve-all-categorieProduit \
+                      -r zap-baseline-report.html \
+                      -I || true
+                '''
+                sh 'ls -la zap-baseline-report.html || true'
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'zap-baseline-report.html',
+                                     allowEmptyArchive: true,
+                                     fingerprint: true
+                    echo 'ZAP baseline report archived.'
+                }
+            }
+        }
+
     }
 
     // ── Global post actions ─────────────────────────────────────
