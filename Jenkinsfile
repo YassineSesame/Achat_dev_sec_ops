@@ -306,6 +306,7 @@ EOF
                         -t ${APP_BASE_URL}/categorieProduit/retrieve-all-categorieProduit \\
                         -r zap-baseline-report.html \\
                         -J zap-baseline-report.json \\
+                        --autooff \\
                         -I" 2>&1 | tee zap-baseline-console.log || true
                     docker cp zap-baseline-ci:/zap/wrk/zap-baseline-report.html . 2>/dev/null || true
                     docker cp zap-baseline-ci:/zap/wrk/zap-baseline-report.json . 2>/dev/null || true
