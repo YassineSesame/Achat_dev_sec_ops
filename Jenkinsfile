@@ -291,7 +291,8 @@ EOF
         stage('OWASP ZAP Baseline') {
             steps {
                 echo '========== OWASP ZAP baseline scan =========='
-                // Share Jenkins workspace via --volumes-from (bind-mount of WORKSPACE fails on Docker-in-Docker/Windows).
+                // zap-baseline.py requires /zap/wrk to be a mount; bind WORKSPACE there inside the container
+                // (--volumes-from jenkins shares jenkins_home; host bind of WORKSPACE path fails on DinD/Windows).
                 sh """
                     mkdir -p target
                     docker pull ghcr.io/zaproxy/zaproxy:stable
@@ -299,14 +300,20 @@ EOF
                     docker run --rm \
                       --volumes-from jenkins \
                       --user root \
+                      --privileged \
                       --add-host=host.docker.internal:host-gateway \
-                      -w "\${WORKSPACE}" \
+                      -e WORKSPACE="\${WORKSPACE}" \
                       ghcr.io/zaproxy/zaproxy:stable \
-                      zap-baseline.py \
-                      -t ${APP_BASE_URL}/categorieProduit/retrieve-all-categorieProduit \
-                      -r zap-baseline-report.html \
-                      -J zap-baseline-report.json \
-                      -I 2>&1 | tee zap-baseline-console.log || true
+                      bash -c '
+                        set -e
+                        mkdir -p /zap/wrk
+                        mount --bind "\$WORKSPACE" /zap/wrk
+                        zap-baseline.py \
+                          -t ${APP_BASE_URL}/categorieProduit/retrieve-all-categorieProduit \
+                          -r /zap/wrk/zap-baseline-report.html \
+                          -J /zap/wrk/zap-baseline-report.json \
+                          -I
+                      ' 2>&1 | tee zap-baseline-console.log || true
                     cp -f zap-baseline-report.html target/zap-baseline-report.html 2>/dev/null || true
                     cp -f zap-baseline-report.json target/zap-baseline-report.json 2>/dev/null || true
                     ls -la zap-baseline-report.* target/zap-baseline-report.* zap-baseline-console.log 2>/dev/null || true
