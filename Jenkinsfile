@@ -302,10 +302,10 @@ EOF
                       --add-host=host.docker.internal:host-gateway \
                       --entrypoint bash \
                       ghcr.io/zaproxy/zaproxy:stable \
-                      -c "mkdir -p /zap/wrk && zap-baseline.py \\
+                      -c "mkdir -p /zap/wrk && cd /zap/wrk && zap-baseline.py \\
                         -t ${APP_BASE_URL}/categorieProduit/retrieve-all-categorieProduit \\
-                        -r /zap/wrk/zap-baseline-report.html \\
-                        -J /zap/wrk/zap-baseline-report.json \\
+                        -r zap-baseline-report.html \\
+                        -J zap-baseline-report.json \\
                         -I" 2>&1 | tee zap-baseline-console.log || true
                     docker cp zap-baseline-ci:/zap/wrk/zap-baseline-report.html . 2>/dev/null || true
                     docker cp zap-baseline-ci:/zap/wrk/zap-baseline-report.json . 2>/dev/null || true
