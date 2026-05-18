@@ -291,29 +291,25 @@ EOF
         stage('OWASP ZAP Baseline') {
             steps {
                 echo '========== OWASP ZAP baseline scan =========='
-                // zap-baseline.py requires /zap/wrk to be a mount; bind WORKSPACE there inside the container
-                // (--volumes-from jenkins shares jenkins_home; host bind of WORKSPACE path fails on DinD/Windows).
+                // ZAP only requires /zap/wrk to exist (not a Docker volume). Copy reports out with docker cp (DinD-safe).
                 sh """
                     mkdir -p target
                     docker pull ghcr.io/zaproxy/zaproxy:stable
-                    echo "ZAP workspace: \${WORKSPACE}"
-                    docker run --rm \
+                    docker rm -f zap-baseline-ci 2>/dev/null || true
+                    docker run --name zap-baseline-ci \
                       --volumes-from jenkins \
                       --user root \
-                      --privileged \
                       --add-host=host.docker.internal:host-gateway \
-                      -e WORKSPACE="\${WORKSPACE}" \
+                      --entrypoint bash \
                       ghcr.io/zaproxy/zaproxy:stable \
-                      bash -c '
-                        set -e
-                        mkdir -p /zap/wrk
-                        mount --bind "\$WORKSPACE" /zap/wrk
-                        zap-baseline.py \
-                          -t ${APP_BASE_URL}/categorieProduit/retrieve-all-categorieProduit \
-                          -r /zap/wrk/zap-baseline-report.html \
-                          -J /zap/wrk/zap-baseline-report.json \
-                          -I
-                      ' 2>&1 | tee zap-baseline-console.log || true
+                      -c "mkdir -p /zap/wrk && zap-baseline.py \\
+                        -t ${APP_BASE_URL}/categorieProduit/retrieve-all-categorieProduit \\
+                        -r /zap/wrk/zap-baseline-report.html \\
+                        -J /zap/wrk/zap-baseline-report.json \\
+                        -I" 2>&1 | tee zap-baseline-console.log || true
+                    docker cp zap-baseline-ci:/zap/wrk/zap-baseline-report.html . 2>/dev/null || true
+                    docker cp zap-baseline-ci:/zap/wrk/zap-baseline-report.json . 2>/dev/null || true
+                    docker rm -f zap-baseline-ci 2>/dev/null || true
                     cp -f zap-baseline-report.html target/zap-baseline-report.html 2>/dev/null || true
                     cp -f zap-baseline-report.json target/zap-baseline-report.json 2>/dev/null || true
                     ls -la zap-baseline-report.* target/zap-baseline-report.* zap-baseline-console.log 2>/dev/null || true
