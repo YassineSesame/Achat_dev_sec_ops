@@ -291,34 +291,39 @@ EOF
         stage('OWASP ZAP Baseline') {
             steps {
                 echo '========== OWASP ZAP baseline scan =========='
-                // owasp/zap2docker-stable was removed from Docker Hub — use official ZAP image (GHCR).
-                // Mount /zap/wrk per https://www.zaproxy.org/docs/docker/baseline-scan/
+                // Share Jenkins workspace via --volumes-from (bind-mount of WORKSPACE fails on Docker-in-Docker/Windows).
                 sh """
                     mkdir -p target
                     docker pull ghcr.io/zaproxy/zaproxy:stable
+                    echo "ZAP workspace: \${WORKSPACE}"
                     docker run --rm \
+                      --volumes-from jenkins \
+                      --user root \
                       --add-host=host.docker.internal:host-gateway \
-                      -v "\${WORKSPACE}:/zap/wrk:rw" \
-                      -w /zap/wrk \
+                      -w "\${WORKSPACE}" \
                       ghcr.io/zaproxy/zaproxy:stable \
                       zap-baseline.py \
                       -t ${APP_BASE_URL}/categorieProduit/retrieve-all-categorieProduit \
-                      -r /zap/wrk/zap-baseline-report.html \
-                      -I || true
+                      -r zap-baseline-report.html \
+                      -J zap-baseline-report.json \
+                      -I 2>&1 | tee zap-baseline-console.log || true
                     cp -f zap-baseline-report.html target/zap-baseline-report.html 2>/dev/null || true
-                    ls -la zap-baseline-report.html target/zap-baseline-report.html 2>/dev/null || true
-                    test -s zap-baseline-report.html || test -s target/zap-baseline-report.html || {
+                    cp -f zap-baseline-report.json target/zap-baseline-report.json 2>/dev/null || true
+                    ls -la zap-baseline-report.* target/zap-baseline-report.* zap-baseline-console.log 2>/dev/null || true
+                    if ! test -s zap-baseline-report.html && ! test -s target/zap-baseline-report.html; then
                       echo "ERROR: ZAP did not produce zap-baseline-report.html in workspace"
+                      echo "---- last 80 lines of zap-baseline-console.log ----"
+                      tail -n 80 zap-baseline-console.log 2>/dev/null || true
                       exit 1
-                    }
+                    fi
                 """
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'zap-baseline-report.html, target/zap-baseline-report.html',
+                    archiveArtifacts artifacts: 'zap-baseline-report.html, zap-baseline-report.json, zap-baseline-console.log, target/zap-baseline-report.*',
                                      allowEmptyArchive: true,
                                      fingerprint: true
-                    echo 'ZAP baseline report archived (workspace root and target/).'
+                    echo 'ZAP baseline reports archived (HTML/JSON/console).'
                 }
             }
         }
