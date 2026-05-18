@@ -260,7 +260,7 @@ EOF
                 sh """
                     for i in \$(seq 1 60); do
                       if docker run --rm --add-host=host.docker.internal:host-gateway curlimages/curl:8.5.0 -sf \\
-                        ${APP_BASE_URL}/categorieProduit/retrieve-all-categorieProduit >/dev/null 2>&1; then
+                        ${APP_BASE_URL}/v2/api-docs >/dev/null 2>&1; then
                         echo "App is up after attempt \${i}"
                         exit 0
                       fi
@@ -284,18 +284,37 @@ EOF
         }
 
         // ══════════════════════════════════════════════════════
-        // STAGE 10 — OWASP ZAP Baseline (DAST)
+        // STAGE 10 — OWASP ZAP (full app: OpenAPI + baseline spider)
         // ══════════════════════════════════════════════════════
-        // Dynamic scan against the running app (after Docker Run).
-        // Report archived as zap-baseline-report.html per build.
-        stage('OWASP ZAP Baseline') {
+        // 1) zap-api-scan  — all REST endpoints from Swagger /v2/api-docs
+        // 2) zap-baseline  — passive scan + spider on app root (5 min)
+        stage('OWASP ZAP Scan') {
             steps {
-                echo '========== OWASP ZAP baseline scan =========='
-                // ZAP only requires /zap/wrk to exist (not a Docker volume). Copy reports out with docker cp (DinD-safe).
+                echo '========== OWASP ZAP: API scan (all endpoints via OpenAPI) =========='
                 sh """
                     mkdir -p target
                     docker pull ghcr.io/zaproxy/zaproxy:stable
-                    docker rm -f zap-baseline-ci 2>/dev/null || true
+                    docker rm -f zap-api-ci zap-baseline-ci 2>/dev/null || true
+
+                    docker run --name zap-api-ci \
+                      --volumes-from jenkins \
+                      --user root \
+                      --add-host=host.docker.internal:host-gateway \
+                      --entrypoint bash \
+                      ghcr.io/zaproxy/zaproxy:stable \
+                      -c "mkdir -p /zap/wrk && cd /zap/wrk && zap-api-scan.py \\
+                        -t ${APP_BASE_URL}/v2/api-docs \\
+                        -f openapi \\
+                        -O host.docker.internal \\
+                        -r zap-api-report.html \\
+                        -J zap-api-report.json \\
+                        -T 20 \\
+                        -I" 2>&1 | tee zap-api-console.log || true
+                    docker cp zap-api-ci:/zap/wrk/zap-api-report.html . 2>/dev/null || true
+                    docker cp zap-api-ci:/zap/wrk/zap-api-report.json . 2>/dev/null || true
+                    docker rm -f zap-api-ci 2>/dev/null || true
+
+                    echo '========== OWASP ZAP: baseline spider on full app context =========='
                     docker run --name zap-baseline-ci \
                       --volumes-from jenkins \
                       --user root \
@@ -303,7 +322,8 @@ EOF
                       --entrypoint bash \
                       ghcr.io/zaproxy/zaproxy:stable \
                       -c "mkdir -p /zap/wrk && cd /zap/wrk && zap-baseline.py \\
-                        -t ${APP_BASE_URL}/categorieProduit/retrieve-all-categorieProduit \\
+                        -t ${APP_BASE_URL}/ \\
+                        -m 5 \\
                         -r zap-baseline-report.html \\
                         -J zap-baseline-report.json \\
                         --autooff \\
@@ -311,23 +331,26 @@ EOF
                     docker cp zap-baseline-ci:/zap/wrk/zap-baseline-report.html . 2>/dev/null || true
                     docker cp zap-baseline-ci:/zap/wrk/zap-baseline-report.json . 2>/dev/null || true
                     docker rm -f zap-baseline-ci 2>/dev/null || true
+
+                    cp -f zap-api-report.html target/zap-api-report.html 2>/dev/null || true
+                    cp -f zap-api-report.json target/zap-api-report.json 2>/dev/null || true
                     cp -f zap-baseline-report.html target/zap-baseline-report.html 2>/dev/null || true
                     cp -f zap-baseline-report.json target/zap-baseline-report.json 2>/dev/null || true
-                    ls -la zap-baseline-report.* target/zap-baseline-report.* zap-baseline-console.log 2>/dev/null || true
-                    if ! test -s zap-baseline-report.html && ! test -s target/zap-baseline-report.html; then
-                      echo "ERROR: ZAP did not produce zap-baseline-report.html in workspace"
-                      echo "---- last 80 lines of zap-baseline-console.log ----"
-                      tail -n 80 zap-baseline-console.log 2>/dev/null || true
+                    ls -la zap-*-report.* zap-*-console.log target/zap-*-report.* 2>/dev/null || true
+
+                    if ! test -s zap-api-report.html && ! test -s target/zap-api-report.html; then
+                      echo "ERROR: ZAP API scan did not produce zap-api-report.html (check Swagger at /v2/api-docs)"
+                      tail -n 80 zap-api-console.log 2>/dev/null || true
                       exit 1
                     fi
                 """
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'zap-baseline-report.html, zap-baseline-report.json, zap-baseline-console.log, target/zap-baseline-report.*',
+                    archiveArtifacts artifacts: 'zap-api-report.html, zap-api-report.json, zap-api-console.log, zap-baseline-report.html, zap-baseline-report.json, zap-baseline-console.log, target/zap-api-report.*, target/zap-baseline-report.*',
                                      allowEmptyArchive: true,
                                      fingerprint: true
-                    echo 'ZAP baseline reports archived (HTML/JSON/console).'
+                    echo 'ZAP reports archived (API scan + baseline).'
                 }
             }
         }
