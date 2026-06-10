@@ -17,6 +17,10 @@ pipeline {
         PATH          = "/usr/lib/jvm/java-21-openjdk-amd64/bin:${env.PATH}"
         SONAR_URL     = 'http://host.docker.internal:9000'
         NEXUS_URL     = 'http://host.docker.internal:8081'
+        JENKINS_URL   = 'http://host.docker.internal:8080'
+        GRAFANA_URL   = 'http://host.docker.internal:3000'
+        PROMETHEUS_URL = 'http://host.docker.internal:9090'
+        CADVISOR_URL  = 'http://host.docker.internal:8085'
         DOCKER_IMAGE  = 'achat'
         APP_BASE_URL  = 'http://host.docker.internal:8089/SpringMVC'
     }
@@ -24,7 +28,7 @@ pipeline {
     // ── Pipeline options ────────────────────────────────────────
     options {
         buildDiscarder(logRotator(numToKeepStr: '5'))
-        timeout(time: 60, unit: 'MINUTES')
+        timeout(time: 90, unit: 'MINUTES')
         timestamps()
     }
 
@@ -252,10 +256,11 @@ GF_SECURITY_ADMIN_USER=admin
 GF_SECURITY_ADMIN_PASSWORD=admin
 EOF
                 '''
-                sh 'docker rm -f achat-app2 achat.2-mysql 2>/dev/null || true'
+                sh 'docker rm -f achat-app2 achat.2-mysql prometheus grafana cadvisor cadvisor1 2>/dev/null || true'
                 // -v removes mysql-data so root password always matches .env (stale volume = Access denied / app crash)
                 sh 'docker-compose down -v --remove-orphans || true'
-                sh 'docker-compose up -d --no-build mysql app'
+                // Full stack for ZAP: app + monitoring (Jenkins/Sonar/Nexus run as separate containers on host)
+                sh 'docker-compose up -d --no-build mysql app prometheus grafana cadvisor'
                 echo 'Waiting for MySQL + Spring Boot to be ready...'
                 sh """
                     for i in \$(seq 1 60); do
@@ -284,73 +289,99 @@ EOF
         }
 
         // ══════════════════════════════════════════════════════
-        // STAGE 10 — OWASP ZAP (full app: OpenAPI + baseline spider)
+        // STAGE 10 — OWASP ZAP (all HTTP services in the stack)
         // ══════════════════════════════════════════════════════
-        // 1) zap-api-scan  — all REST endpoints from Swagger /v2/api-docs
-        // 2) zap-baseline  — passive scan + spider on app root (5 min)
+        // ZAP scans HTTP/HTTPS only. MySQL :3306 is skipped (use Trivy for images).
+        // Targets: achat (OpenAPI + baseline), Jenkins, SonarQube, Nexus,
+        //          Grafana, Prometheus, cAdvisor.
         stage('OWASP ZAP Scan') {
             steps {
-                echo '========== OWASP ZAP: API scan (all endpoints via OpenAPI) =========='
+                echo '========== OWASP ZAP: scanning all HTTP containers =========='
                 sh """
-                    mkdir -p target
+                    mkdir -p target zap-reports
+                    : > zap-reports/zap-scan-summary.txt
                     docker pull ghcr.io/zaproxy/zaproxy:stable
-                    docker rm -f zap-api-ci zap-baseline-ci 2>/dev/null || true
 
-                    docker run --name zap-api-ci \
-                      --volumes-from jenkins \
-                      --user root \
-                      --add-host=host.docker.internal:host-gateway \
-                      --entrypoint bash \
-                      ghcr.io/zaproxy/zaproxy:stable \
+                    run_zap_baseline() {
+                      local svc="\$1" url="\$2" mins="\${3:-2}"
+                      echo "========== ZAP baseline: \${svc} => \${url} =========="
+                      docker rm -f "zap-\${svc}" 2>/dev/null || true
+                      docker run --name "zap-\${svc}" \\
+                        --volumes-from jenkins \\
+                        --user root \\
+                        --add-host=host.docker.internal:host-gateway \\
+                        --entrypoint bash \\
+                        ghcr.io/zaproxy/zaproxy:stable \\
+                        -c "mkdir -p /zap/wrk && cd /zap/wrk && zap-baseline.py \\
+                          -t \${url} \\
+                          -m \${mins} \\
+                          -r zap-\${svc}-report.html \\
+                          -J zap-\${svc}-report.json \\
+                          --autooff \\
+                          -I" 2>&1 | tee "zap-reports/\${svc}-console.log" || true
+                      docker cp "zap-\${svc}:/zap/wrk/zap-\${svc}-report.html" zap-reports/ 2>/dev/null || true
+                      docker cp "zap-\${svc}:/zap/wrk/zap-\${svc}-report.json" zap-reports/ 2>/dev/null || true
+                      docker rm -f "zap-\${svc}" 2>/dev/null || true
+                      if test -s "zap-reports/zap-\${svc}-report.html"; then
+                        echo "OK   \${svc} \${url}" >> zap-reports/zap-scan-summary.txt
+                      else
+                        echo "FAIL \${svc} \${url} (service down or scan error)" >> zap-reports/zap-scan-summary.txt
+                      fi
+                    }
+
+                    echo '--- achat: OpenAPI active scan (all REST endpoints) ---'
+                    docker rm -f zap-achat-api 2>/dev/null || true
+                    docker run --name zap-achat-api \\
+                      --volumes-from jenkins \\
+                      --user root \\
+                      --add-host=host.docker.internal:host-gateway \\
+                      --entrypoint bash \\
+                      ghcr.io/zaproxy/zaproxy:stable \\
                       -c "mkdir -p /zap/wrk && cd /zap/wrk && zap-api-scan.py \\
                         -t ${APP_BASE_URL}/v2/api-docs \\
                         -f openapi \\
                         -O host.docker.internal \\
-                        -r zap-api-report.html \\
-                        -J zap-api-report.json \\
+                        -r zap-achat-api-report.html \\
+                        -J zap-achat-api-report.json \\
                         -T 20 \\
-                        -I" 2>&1 | tee zap-api-console.log || true
-                    docker cp zap-api-ci:/zap/wrk/zap-api-report.html . 2>/dev/null || true
-                    docker cp zap-api-ci:/zap/wrk/zap-api-report.json . 2>/dev/null || true
-                    docker rm -f zap-api-ci 2>/dev/null || true
+                        -I" 2>&1 | tee zap-reports/achat-api-console.log || true
+                    docker cp zap-achat-api:/zap/wrk/zap-achat-api-report.html zap-reports/ 2>/dev/null || true
+                    docker cp zap-achat-api:/zap/wrk/zap-achat-api-report.json zap-reports/ 2>/dev/null || true
+                    docker rm -f zap-achat-api 2>/dev/null || true
+                    if test -s zap-reports/zap-achat-api-report.html; then
+                      echo "OK   achat-api ${APP_BASE_URL}/v2/api-docs" >> zap-reports/zap-scan-summary.txt
+                    else
+                      echo "FAIL achat-api ${APP_BASE_URL}/v2/api-docs" >> zap-reports/zap-scan-summary.txt
+                    fi
 
-                    echo '========== OWASP ZAP: baseline spider on full app context =========='
-                    docker run --name zap-baseline-ci \
-                      --volumes-from jenkins \
-                      --user root \
-                      --add-host=host.docker.internal:host-gateway \
-                      --entrypoint bash \
-                      ghcr.io/zaproxy/zaproxy:stable \
-                      -c "mkdir -p /zap/wrk && cd /zap/wrk && zap-baseline.py \\
-                        -t ${APP_BASE_URL}/ \\
-                        -m 5 \\
-                        -r zap-baseline-report.html \\
-                        -J zap-baseline-report.json \\
-                        --autooff \\
-                        -I" 2>&1 | tee zap-baseline-console.log || true
-                    docker cp zap-baseline-ci:/zap/wrk/zap-baseline-report.html . 2>/dev/null || true
-                    docker cp zap-baseline-ci:/zap/wrk/zap-baseline-report.json . 2>/dev/null || true
-                    docker rm -f zap-baseline-ci 2>/dev/null || true
+                    echo '--- baseline DAST on each HTTP container ---'
+                    echo "SKIP mysql:3306 (not HTTP — covered by Trivy image scan)" >> zap-reports/zap-scan-summary.txt
+                    run_zap_baseline achat-app '${APP_BASE_URL}/' 3
+                    run_zap_baseline jenkins '${JENKINS_URL}/' 2
+                    run_zap_baseline sonarqube '${SONAR_URL}/' 2
+                    run_zap_baseline nexus '${NEXUS_URL}/' 2
+                    run_zap_baseline grafana '${GRAFANA_URL}/' 2
+                    run_zap_baseline prometheus '${PROMETHEUS_URL}/' 2
+                    run_zap_baseline cadvisor '${CADVISOR_URL}/' 2
 
-                    cp -f zap-api-report.html target/zap-api-report.html 2>/dev/null || true
-                    cp -f zap-api-report.json target/zap-api-report.json 2>/dev/null || true
-                    cp -f zap-baseline-report.html target/zap-baseline-report.html 2>/dev/null || true
-                    cp -f zap-baseline-report.json target/zap-baseline-report.json 2>/dev/null || true
-                    ls -la zap-*-report.* zap-*-console.log target/zap-*-report.* 2>/dev/null || true
+                    cp -f zap-reports/* target/ 2>/dev/null || true
+                    echo '========== ZAP scan summary =========='
+                    cat zap-reports/zap-scan-summary.txt
+                    ls -la zap-reports/ target/zap-*-report.* 2>/dev/null || true
 
-                    if ! test -s zap-api-report.html && ! test -s target/zap-api-report.html; then
-                      echo "ERROR: ZAP API scan did not produce zap-api-report.html (check Swagger at /v2/api-docs)"
-                      tail -n 80 zap-api-console.log 2>/dev/null || true
+                    if ! test -s zap-reports/zap-achat-api-report.html; then
+                      echo "ERROR: achat OpenAPI scan did not produce a report (Swagger /v2/api-docs)"
+                      tail -n 80 zap-reports/achat-api-console.log 2>/dev/null || true
                       exit 1
                     fi
                 """
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'zap-api-report.html, zap-api-report.json, zap-api-console.log, zap-baseline-report.html, zap-baseline-report.json, zap-baseline-console.log, target/zap-api-report.*, target/zap-baseline-report.*',
+                    archiveArtifacts artifacts: 'zap-reports/**, target/zap-*-report.*, target/zap-scan-summary.txt',
                                      allowEmptyArchive: true,
                                      fingerprint: true
-                    echo 'ZAP reports archived (API scan + baseline).'
+                    echo 'ZAP reports archived (all HTTP containers + summary).'
                 }
             }
         }
