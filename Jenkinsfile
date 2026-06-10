@@ -257,6 +257,7 @@ GF_SECURITY_ADMIN_PASSWORD=admin
 EOF
                 '''
                 sh 'docker rm -f achat-app2 achat.2-mysql prometheus grafana cadvisor cadvisor1 2>/dev/null || true'
+                sh 'if [ -d prometheus.yml ]; then rm -rf prometheus.yml && git checkout -- prometheus.yml 2>/dev/null || true; fi'
                 // -v removes mysql-data so root password always matches .env (stale volume = Access denied / app crash)
                 // docker-compose.ci.yml avoids host bind mounts (prometheus.yml) that fail in Jenkins DinD/Windows
                 sh 'docker-compose -f docker-compose.ci.yml down -v --remove-orphans || true'
