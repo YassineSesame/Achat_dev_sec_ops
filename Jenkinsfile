@@ -258,9 +258,9 @@ EOF
                 '''
                 sh 'docker rm -f achat-app2 achat.2-mysql prometheus grafana cadvisor cadvisor1 2>/dev/null || true'
                 // -v removes mysql-data so root password always matches .env (stale volume = Access denied / app crash)
-                sh 'docker-compose down -v --remove-orphans || true'
-                // Full stack for ZAP: app + monitoring (Jenkins/Sonar/Nexus run as separate containers on host)
-                sh 'docker-compose up -d --no-build mysql app prometheus grafana cadvisor'
+                // docker-compose.ci.yml avoids host bind mounts (prometheus.yml) that fail in Jenkins DinD/Windows
+                sh 'docker-compose -f docker-compose.ci.yml down -v --remove-orphans || true'
+                sh 'docker-compose -f docker-compose.ci.yml up -d --no-build mysql app prometheus grafana cadvisor'
                 echo 'Waiting for MySQL + Spring Boot to be ready...'
                 sh """
                     for i in \$(seq 1 60); do
@@ -273,14 +273,14 @@ EOF
                       sleep 5
                     done
                     echo "App did not become ready — compose logs:"
-                    docker-compose logs --tail=80 app mysql || true
+                    docker-compose -f docker-compose.ci.yml logs --tail=80 app mysql prometheus grafana || true
                     exit 1
                 """
                 echo "Stack started — app available at ${APP_BASE_URL}"
             }
             post {
                 success {
-                    echo "Stack is up: achat-mysql + achat-app running via docker-compose."
+                    echo "Stack is up: mysql + app + prometheus + grafana + cadvisor (CI compose)."
                 }
                 failure {
                     echo 'Docker Run FAILED. Check docker-compose logs for details.'
