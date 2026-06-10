@@ -46,3 +46,4 @@ secrets/
 ### OWASP Dependency-Check reports ###
 dependency-check-report.*
 target/dependency-check-report.*
+.dependency-check-data/

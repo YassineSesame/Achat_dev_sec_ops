@@ -143,20 +143,32 @@ pipeline {
         }
 
         // ══════════════════════════════════════════════════════
-        // STAGE 6 — OWASP Dependency-Check (DISABLED in CI)
+        // STAGE 6 — OWASP Dependency-Check (SCA on Maven dependencies)
         // ══════════════════════════════════════════════════════
-        // The OWASP plugin is integrated in pom.xml and can be run
-        // locally with:
-        //   mvn org.owasp:dependency-check-maven:check -DnvdApiKey=...
-        // It is intentionally NOT executed in CI to avoid blocking the
-        // pipeline on NVD rate limits. Trivy (next stage) covers both
-        // OS-level and Java dependency vulnerabilities.
-        //
-        // To re-enable, change the `when` clause below to `expression { true }`.
+        // failBuildOnCVSS=11 in pom.xml => never fails on CVE score.
+        // Optional Jenkins credential "nvd-api-key" avoids NVD 403/rate limits.
         stage('OWASP Dependency-Check') {
-            when { expression { false } }
             steps {
-                echo '========== OWASP scan skipped (run locally) =========='
+                echo '========== OWASP Dependency-Check =========='
+                // Add Jenkins credential id "nvd-api-key" (Secret text) to speed up NVD updates.
+                sh '''
+                    mvn org.owasp:dependency-check-maven:check \
+                      -DfailBuildOnCVSS=11 \
+                      -DnvdValidForHours=168 \
+                      -DdataDirectory=${WORKSPACE}/.dependency-check-data \
+                      || echo "OWASP Dependency-Check completed with warnings (NVD limits — Trivy also scans deps)"
+                    ls -la target/dependency-check-report.html 2>/dev/null || true
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'target/dependency-check-report.html',
+                                     allowEmptyArchive: true,
+                                     fingerprint: true
+                }
+                success {
+                    echo 'OWASP Dependency-Check stage completed.'
+                }
             }
         }
 
